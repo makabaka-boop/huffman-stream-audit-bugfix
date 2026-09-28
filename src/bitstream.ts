@@ -1,14 +1,28 @@
 import { fail } from "./errors.js";
 
+/** 单个十六进制字节块：偶数位的纯十六进制串（大小写均可），空串等价于零字节。 */
+const HEX_BLOCK_RE = /^(?:[0-9a-fA-F]{2})*$/;
+
 /**
  * 把十六进制字节块解析成一段连续字节序列。
  * 每个块必须是偶数长度的十六进制串（大小写均可），空块等价于零字节。
+ * 块只提供原始字节，块边界在后续位读取中完全不可见。
  */
 export function parseHexBlocks(blocks: unknown): Uint8Array {
+  if (!Array.isArray(blocks)) {
+    fail("INVALID_INPUT", "bitstream.blocks must be an array of hex strings", null);
+  }
   const bytes: number[] = [];
-  for (const block of blocks as string[]) {
+  for (const block of blocks) {
+    if (typeof block !== "string" || !HEX_BLOCK_RE.test(block)) {
+      fail(
+        "INVALID_INPUT",
+        `malformed hex block ${JSON.stringify(block)}: expected an even-length string of hexadecimal digits`,
+        null,
+      );
+    }
     for (let i = 0; i < block.length; i += 2) {
-      bytes.push(parseInt(block.slice(i, i + 2), 16));
+      bytes.push(Number.parseInt(block.slice(i, i + 2), 16));
     }
   }
   return Uint8Array.from(bytes);
@@ -28,5 +42,6 @@ export function bitAt(bytes: Uint8Array, pos: number): number {
       bytes.length * 8,
     );
   }
-  return (byte >> (pos & 7)) & 1;
+  // MSB-first：全局第 0 位取 bit7，第 1 位取 bit6，……
+  return (byte >> (7 - (pos & 7))) & 1;
 }

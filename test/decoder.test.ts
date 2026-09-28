@@ -96,6 +96,24 @@ describe("跨块连续解码", () => {
     ]);
   });
 
+  it("同一长度表调整输入顺序不影响规范码表（同码长按符号 UTF-8 字节序）", () => {
+    const mk = (symbols: typeof COMPLETE) =>
+      decode({ symbols, bitstream: { blocks: ["10"], totalBits: 4 } });
+    const a = [
+      { symbol: "b", length: 2 },
+      { symbol: "Z", length: 2 },
+      { symbol: "EOS", length: 2 },
+      { symbol: "A", length: 2 },
+    ];
+    const b = [
+      { symbol: "A", length: 2 },
+      { symbol: "EOS", length: 2 },
+      { symbol: "Z", length: 2 },
+      { symbol: "b", length: 2 },
+    ];
+    expect(mk(a)).toEqual(mk(b));
+  });
+
 
 });
 
@@ -134,6 +152,32 @@ describe("整份报错与首次出错的全局位偏移", () => {
       bitstream: { blocks: ["70"], totalBits: 4 }, // 0111
     });
     expect(r).toMatchObject({ ok: false, error: { code: "NO_VALID_PREFIX", bitOffset: 3 } });
+  });
+
+  it("尚未读到最大码长、前缀已死时立即报错（不等到读满最大码长）", () => {
+    // 所有码字都以 0 开头（长度 3/4/4）：首比特为 1 时，偏移 0 已无任何可能前缀
+    const r = decode({
+      symbols: [
+        { symbol: "A", length: 3 },
+        { symbol: "B", length: 4 },
+        { symbol: "EOS", length: 4 },
+      ],
+      bitstream: { blocks: ["80"], totalBits: 4 }, // 1000
+    });
+    expect(r).toMatchObject({ ok: false, error: { code: "NO_VALID_PREFIX", bitOffset: 0 } });
+  });
+
+  it("有效位耗尽时仍挂着一个合法前缀 → MISSING_EOS @totalBits（而非 NO_VALID_PREFIX）", () => {
+    // A=0, B=10, EOS=110；比特 11：仍是 EOS 的前缀但位已耗尽
+    const r = decode({
+      symbols: [
+        { symbol: "A", length: 1 },
+        { symbol: "B", length: 2 },
+        { symbol: "EOS", length: 3 },
+      ],
+      bitstream: { blocks: ["c0"], totalBits: 2 },
+    });
+    expect(r).toMatchObject({ ok: false, error: { code: "MISSING_EOS", bitOffset: 2 } });
   });
 
   it("有效位耗尽仍未见 EOS → MISSING_EOS @totalBits", () => {
@@ -221,6 +265,10 @@ describe("边界与容错", () => {
         bitstream: { blocks: [], totalBits: 0 },
       }, // 超过 64 个符号
       { symbols: [...COMPLETE, { symbol: "A", length: 3 }], bitstream: { blocks: [], totalBits: 0 } }, // 重复符号
+      { symbols: [{ symbol: "EOS", length: 1 }, { symbol: "EOS", length: 2 }], bitstream: { blocks: [], totalBits: 0 } }, // 重复 EOS
+      { symbols: [{ symbol: 1, length: 1 }, { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 符号名非字符串
+      { symbols: [{ symbol: "A" }, { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 缺 length
+      { symbols: ["x", { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 条目非对象
       { symbols: [{ symbol: "é", length: 1 }, { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 非 ASCII
       { symbols: [{ symbol: "AB", length: 1 }, { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 多字符
       { symbols: [{ symbol: "", length: 1 }, { symbol: "EOS", length: 1 }], bitstream: { blocks: [], totalBits: 0 } }, // 空符号

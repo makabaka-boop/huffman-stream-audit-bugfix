@@ -40,21 +40,55 @@ async function main(): Promise<void> {
     return;
   }
   const raw = await readStdin();
-  let result;
+  let parsed: unknown;
   try {
-    result = decode(JSON.parse(raw));
+    parsed = JSON.parse(raw);
   } catch (err) {
     if (err instanceof SyntaxError) {
-      result = {
-        ok: false as const,
-        error: { code: "INVALID_INPUT", message: `stdin is not valid JSON: ${err.message}`, bitOffset: null },
-      };
-    } else {
-      throw err;
+      process.stdout.write(
+        JSON.stringify(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_INPUT",
+              message: `stdin is not valid JSON: ${err.message}`,
+              bitOffset: null,
+            },
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      process.exitCode = 1;
+      return;
     }
+    throw err;
   }
+
+  const result = decode(parsed);
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-  process.exitCode = 0;
+  // 失败结果必须以非零退出码返回，绝不返回成功值
+  process.exitCode = result.ok ? 0 : 1;
 }
 
-await main();
+try {
+  await main();
+} catch (err) {
+  // 理论上 decode 已封装全部已知失败；这里兜底，保证任何意外都不会产生
+  // 堆栈输出与成功退出码
+  process.stdout.write(
+    JSON.stringify(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_INPUT",
+          message: `unexpected failure: ${err instanceof Error ? err.message : String(err)}`,
+          bitOffset: null,
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  process.exitCode = 1;
+}

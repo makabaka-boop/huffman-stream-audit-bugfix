@@ -45,26 +45,39 @@ export function compareByteArrays(a: number[], b: number[]): number {
 /**
  * 规范顺序：先按码长升序，同码长内按符号名的 UTF-8 字节序。
  * （"EOS" 作为符号名同样取其 UTF-8 字节参与排序。）
+ * 排序结果与输入顺序无关——同一组长度表无论以何种顺序给出都重建出同一张码表。
  */
 export function canonicalOrder(entries: SymbolLength[]): SymbolLength[] {
-  return [...entries].sort((x, y) => x.length - y.length);
+  return [...entries].sort((x, y) => {
+    if (x.length !== y.length) return x.length - y.length;
+    return compareByteArrays(utf8Bytes(x.symbol), utf8Bytes(y.symbol));
+  });
 }
 
 /**
  * 从长度表按固定顺序重建规范码表：按规范顺序遍历符号，
  * 码字从 0 开始连续分配，码长增加时左移。
- * 若某一步码字值超出当前码长可表示的范围，则长度表违反 Kraft 不等式，
- * 即超额订码（OVERSUBSCRIBED）。允许 Kraft 和 < 1 的不完整码表。
+ * 若某一步左移后的码字值超出当前码长可表示的范围（最高位 >= 2^length），
+ * 则长度表违反 Kraft 不等式，即超额订码（OVERSUBSCRIBED），直接抛出。
+ * 允许 Kraft 和 < 1 的不完整码表。
  */
 export function buildCodeTable(entries: SymbolLength[]): CodeEntry[] {
   const sorted = canonicalOrder(entries);
+  const result: CodeEntry[] = [];
   let value = 0;
   let previous = 0;
-  return sorted.map(({ symbol, length }) => {
+  for (const { symbol, length } of sorted) {
     value <<= length - previous;
-    const item = { symbol, length, value, code: value.toString(2).padStart(length, "0") };
+    if (value >= (1 << length)) {
+      fail(
+        "OVERSUBSCRIBED",
+        `length table is oversubscribed: code for symbol ${symbol} of length ${length} exceeds the available prefix space`,
+        0,
+      );
+    }
+    result.push({ symbol, length, value, code: value.toString(2).padStart(length, "0") });
     value++;
     previous = length;
-    return item;
-  });
+  }
+  return result;
 }
