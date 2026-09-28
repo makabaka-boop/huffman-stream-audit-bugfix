@@ -44,10 +44,15 @@ export function compareByteArrays(a: number[], b: number[]): number {
 
 /**
  * 规范顺序：先按码长升序，同码长内按符号名的 UTF-8 字节序。
+ * 因此无论输入数组的顺序如何，同一组 (符号, 码长) 重建出的码表必然相同。
  * （"EOS" 作为符号名同样取其 UTF-8 字节参与排序。）
  */
 export function canonicalOrder(entries: SymbolLength[]): SymbolLength[] {
-  return [...entries].sort((x, y) => x.length - y.length);
+  return [...entries].sort(
+    (x, y) =>
+      x.length - y.length ||
+      compareByteArrays(utf8Bytes(x.symbol), utf8Bytes(y.symbol)),
+  );
 }
 
 /**
@@ -62,6 +67,15 @@ export function buildCodeTable(entries: SymbolLength[]): CodeEntry[] {
   let previous = 0;
   return sorted.map(({ symbol, length }) => {
     value <<= length - previous;
+    if (value >= 1 << length) {
+      fail(
+        "OVERSUBSCRIBED",
+        `length table is over-subscribed: code for symbol ${JSON.stringify(
+          symbol,
+        )} would need more than ${length} bits (Kraft sum > 1)`,
+        0,
+      );
+    }
     const item = { symbol, length, value, code: value.toString(2).padStart(length, "0") };
     value++;
     previous = length;

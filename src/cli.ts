@@ -50,11 +50,19 @@ async function main(): Promise<void> {
         error: { code: "INVALID_INPUT", message: `stdin is not valid JSON: ${err.message}`, bitOffset: null },
       };
     } else {
-      throw err;
+      // decode() 自身已兜底所有错误；这里再防一层 I/O 等意外异常。
+      result = {
+        ok: false as const,
+        error: {
+          code: "INVALID_INPUT" as const,
+          message: err instanceof Error ? err.message : String(err),
+          bitOffset: null,
+        },
+      };
     }
   }
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-  process.exitCode = 0;
+  process.exitCode = result.ok ? 0 : 1;
 }
 
 await main();
